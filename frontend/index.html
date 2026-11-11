@@ -13,24 +13,35 @@
     <div class="hero-top">
       <a class="logo" href="index.html"><img src="img/logo.png" alt=""><span>골목버림</span></a>
       <div class="btns">
-        <a class="outline-btn" href="join.html#town">우리 골목 신청하기</a>
       </div>
     </div>
     <div class="hero-copy">
       <h1>쓰레기는 골목버림으로</h1>
-      <p>분리배출 안내부터 모음터 적재량, 골목 지킴이 당번까지</p>
+      <p>AI가 분리배출을 알려주고, 무단투기를 판단하고, 오늘 골목에서 할 일을 정리해요</p>
       <a class="duty-pill" id="dutyPill" href="join.html#guardian" hidden></a>
     </div>
   </section>
 
   <nav class="menu-card" aria-label="바로가기">
-    <a href="scan.html"><img src="img/idea.png" alt=""><span>사진 분리배출</span></a>
+    <a href="scan.html#photo"><em class="ai-mark">AI</em><img src="img/idea.png" alt=""><span>AI 분리배출</span></a>
+    <a href="scan.html#dumping"><em class="ai-mark">AI</em><img src="img/report.svg" alt=""><span>AI 무단투기 신고</span></a>
     <a href="dashboard.html"><img src="img/bin.svg" alt=""><span>모음터 적재량</span></a>
-    <a href="join.html#map" class="active"><img src="img/villa.svg" alt=""><span>골목단지</span></a>
+    <a href="join.html#town"><img src="img/villa.svg" alt=""><span>골목단지</span></a>
     <a href="join.html#guardian" id="menuGuardian"><img src="img/person.png" alt=""><span>골목 지킴이</span></a>
-    <a href="join.html#retention"><img src="img/laurel.png" alt=""><span>포인트·보상</span></a>
-    <a href="join.html#map" id="menuSearch"><img src="img/search.svg" alt=""><span>다른 동네 찾기</span></a>
+    <a href="join.html#search" id="menuSearch"><img src="img/search.svg" alt=""><span>다른 동네 찾기</span></a>
   </nav>
+
+  <section class="section">
+    <div class="sec-head">
+      <div class="eyebrow-en">AI daily briefing</div>
+      <h2>AI가 정리한 <b>오늘의 골목</b></h2>
+      <p class="lead">적재량, 장비 이상, 무단투기 신호를 AI가 해석해서 할 일을 알려드려요</p>
+    </div>
+    <div class="home-brief" id="homeBrief">
+      <div class="hb-top"><span class="ai-tag light">AI 브리핑</span></div>
+      <h3>AI가 오늘 골목을 정리하는 중이에요...</h3>
+    </div>
+  </section>
 
   <section class="section">
     <div class="sec-head">
@@ -38,7 +49,7 @@
       <h2>오늘 저녁 챙겨야 할 <b>우리 골목 소식</b></h2>
       <p class="lead">버리는 날, 모음터 상태, 내 당번을 한 번에 알려드려요</p>
     </div>
-    <div class="news-row" id="newsRow"></div>
+    <div class="news-row three" id="newsRow"></div>
   </section>
 
   <section class="section">
@@ -58,7 +69,6 @@
 
   <div class="float-btns">
     <button class="navy" id="floatAlert">저녁 7시<br>알림 보기</button>
-    <button class="blue" onclick="location.href='join.html#map'">다른 동네<br>찾기</button>
   </div>
 
   <script src="js/api.js"></script>
@@ -88,18 +98,45 @@
           meta: okTypes.length ? `${okTypes[0].time} · 모음터로` : "집 안에 보관해 주세요" },
         { href: "dashboard.html", title: `${fullest.station} ${fullest.type}통이 ${fullest.fill}% 찼어요`,
           meta: `가득 예상 ${formatTime(fullest.full_at)}` },
-        f.guardian
-          ? { href: "join.html#guardian", title: `내 지킴이 당번까지 ${d.left}번 남았어요`, meta: d.week }
-          : { href: "join.html#retention", title: "3개월 연속 참여하면 보너스 포인트", meta: `지금 ${getPoints().toLocaleString()}P` }
+        { href: "join.html#retention", title: "이번 달까지 참여하면 3개월 연속 보너스", meta: `지금 내 포인트 ${getPoints().toLocaleString()}P` }
       ];
 
       document.getElementById("newsRow").innerHTML = cards.map(c => `
-        <a class="news" href="${c.href}"><h3>${c.title}</h3><span class="meta">${c.meta}</span></a>`).join("") + `
-        <a class="news more" href="join.html#map"><h3>더 많은<br><b>골목 소식</b><br>보러 가기</h3><span class="line"></span></a>`;
+        <a class="news" href="${c.href}"><h3>${c.title}</h3><span class="meta">${c.meta}</span></a>`).join("");
+
+      loadHomeBriefing();
 
       const fa = document.getElementById("floatAlert");
       if (f.eveningAlert) fa.onclick = previewEveningAlert; else fa.remove();
     }
+    async function loadHomeBriefing() {
+      const box = document.getElementById("homeBrief");
+      try {
+        const b = await getBriefing(false);
+        if (!b.ok) throw new Error(b.error || "정리하지 못했어요");
+        const top = b.pickup_priority.slice(0, 2).map(p =>
+          `<li><b>${p.place}</b>${p.fill != null ? ` ${p.fill}%` : ""} · ${p.when}</li>`).join("");
+        box.innerHTML = `
+          <div class="hb-top">
+            <span class="ai-tag light">AI 브리핑</span>
+            <span class="badge ${b.risk_level === "높음" ? "full" : b.risk_level === "보통" ? "warn" : "ok"}">오늘 위험도 ${b.risk_level}</span>
+            ${b.equipment.length ? `<span class="badge full">장비 이상 ${b.equipment.length}곳</span>` : ""}
+          </div>
+          <h3>${b.headline}</h3>
+          <div class="hb-grid">
+            <div><div class="hb-label">주민 공지</div><p>${b.resident_notice}</p></div>
+            <div><div class="hb-label">먼저 비울 곳</div><ol>${top || "<li>급하게 비울 통이 없어요</li>"}</ol></div>
+          </div>
+          <a class="btn" href="scan.html#briefing">브리핑 전체 보기</a>`;
+      } catch (e) {
+        box.innerHTML = `
+          <div class="hb-top"><span class="ai-tag light">AI 브리핑</span></div>
+          <h3>지금은 AI 브리핑을 불러오지 못했어요</h3>
+          <p class="hb-msg">${e.message}</p>
+          <a class="btn" href="scan.html#briefing">브리핑 화면으로 가기</a>`;
+      }
+    }
+
     load();
   </script>
 </body>

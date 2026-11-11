@@ -85,7 +85,8 @@ def get_stations():
         bins = cur.execute("SELECT * FROM bins WHERE station_id = ? ORDER BY id", (s["id"],)).fetchall()
         result.append({
             "id": s["id"], "name": s["name"], "lat": s["lat"], "lng": s["lng"],
-            "bins": [{"id": b["id"], "type": b["type"], "fill": b["fill"], "full_at": b["full_at"]} for b in bins],
+            "bins": [{"id": b["id"], "type": b["type"], "fill": b["fill"], "full_at": _calc_full_at(conn, b["id"])}
+                     for b in bins],
         })
     conn.close()
     return result
@@ -114,18 +115,36 @@ def get_readings(bin_id: int):
     return [dict(r) for r in rows]
 
 
-# 5. 가득 차는 시각 (DB 값 우선, 없으면 기록으로 AI 예측)
+# 5. 가득 차는 시각: 최근 24시간 적재율 기록에 직선을 맞춰 직접 계산 (DB에 미리 넣은 값은 쓰지 않음)
+def _recent_readings(conn, bin_id: int):
+    rows = conn.execute(
+        "SELECT time, fill FROM (SELECT time, fill FROM readings WHERE bin_id = ? ORDER BY time DESC LIMIT 24) ORDER BY time",
+        (bin_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _calc_full_at(conn, bin_id: int):
+    readings = _recent_readings(conn, bin_id)
+    return predict_full_time(readings).get("full_at") if readings else None
+
+
 @app.get("/bins/{bin_id}/predict")
 def get_prediction(bin_id: int):
     conn = get_db()
-    b = conn.execute("SELECT full_at FROM bins WHERE id = ?", (bin_id,)).fetchone()
-    conn.close()
-    if b is None:
+    if conn.execute("SELECT 1 FROM bins WHERE id = ?", (bin_id,)).fetchone() is None:
+        conn.close()
         raise HTTPException(404, "쓰레기통을 찾을 수 없습니다.")
-    if b["full_at"]:
-        return {"bin_id": bin_id, "full_at": b["full_at"]}
-    predicted = predict_full_time(get_readings(bin_id))
-    return {"bin_id": bin_id, "full_at": predicted.get("full_at")}
+    readings = _recent_readings(conn, bin_id)
+    conn.close()
+    p = predict_full_time(readings) if readings else {"full_at": None, "status": "no_data"}
+    return {
+        "bin_id": bin_id,
+        "full_at": p.get("full_at"),
+        "rate_per_hour": p.get("rate_per_hour"),
+        "status": p.get("status"),
+        "method": "최근 24시간 적재율 기록으로 계산 (마지막 수거 이후 직선 추세)",
+    }
 
 
 # ② 장비 고장 감지
@@ -305,3 +324,74 @@ def dumping_report_done(report_id: int):
     if cur.rowcount == 0:
         raise HTTPException(404, "신고를 찾을 수 없어요.")
     return {"id": report_id, "status": "처리 완료"}
+
+
+# =========================================================
+# ① AI 골목 브리핑: 규칙·통계 신호를 모아 AI가 오늘 할 일을 정리
+# =========================================================
+_BRIEFING_CACHE = {"at": None, "data": None}
+BRIEFING_TTL_SECONDS = 600  # 10분 동안은 같은 결과를 다시 씀 (시연 속도, 요금 절약)
+
+
+def _short(name: str) -> str:
+    return name.split(" (")[0]
+
+
+def build_briefing_context() -> dict:
+    stations = get_stations()
+    bins = []
+    for s in stations:
+        for b in s["bins"]:
+            fault = detect_fault(SENSOR_LOGS.get(b["id"], []), b["id"])
+            bins.append({
+                "place": f"{_short(s['name'])} · {b['type']}",
+                "station_detail": s["name"],
+                "fill_percent": b["fill"],
+                "predicted_full_at": b["full_at"],
+                "equipment": {"status": fault.get("status"), "type": fault.get("type"), "reason": fault.get("reason")},
+            })
+    names = {s["id"]: s["name"] for s in stations}
+    ensure_report_table()
+    conn = get_db()
+    open_reports = conn.execute(
+        "SELECT created_at, station_id, severity, report_text FROM dumping_reports WHERE status = '접수' ORDER BY id DESC LIMIT 5"
+    ).fetchall()
+    conn.close()
+    cluster = get_cluster(1)
+    return {
+        "now": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+        "alley": cluster["name"],
+        "households": f"{cluster['current']} / {cluster['target']}세대",
+        "today_schedule": get_today_schedule(),
+        "bins": bins,
+        "open_dumping_reports": [
+            {"when": r["created_at"], "place": names.get(r["station_id"], "골목 (모음터 밖)"),
+             "severity": r["severity"], "text": r["report_text"]} for r in open_reports
+        ],
+    }
+
+
+@app.get("/briefing")
+def briefing(refresh: bool = False):
+    now = datetime.now()
+    cached = _BRIEFING_CACHE["data"]
+    if cached and not refresh and (now - _BRIEFING_CACHE["at"]).total_seconds() < BRIEFING_TTL_SECONDS:
+        return {**cached, "cached": True}
+    if ai_module is None:
+        raise HTTPException(503, f"AI 기능을 쓸 수 없어요. ({AI_ERROR})")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise HTTPException(503, "API 키가 없어요. backend/.env 파일에 ANTHROPIC_API_KEY를 넣고 서버를 다시 켜 주세요.")
+    context = build_briefing_context()
+    try:
+        result = ai_module.generate_briefing(context)
+    except Exception as e:
+        result = ai_module._briefing_error(f"AI 호출 중 오류: {e}")
+    result["generated_at"] = now.strftime("%Y-%m-%dT%H:%M")
+    result["signals"] = {
+        "bins": len(context["bins"]),
+        "faults": sum(1 for b in context["bins"] if b["equipment"]["status"] == "suspect"),
+        "open_reports": len(context["open_dumping_reports"]),
+    }
+    if result.get("ok"):
+        _BRIEFING_CACHE.update(at=now, data=result)
+    return {**result, "cached": False}

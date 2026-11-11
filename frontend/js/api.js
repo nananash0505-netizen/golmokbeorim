@@ -240,6 +240,42 @@ const MOCK_DUMPING_RESULT = {
   privacy_note: ""
 };
 
+// ---------- AI 골목 브리핑 (서버: GET /briefing) ----------
+// 규칙·통계 신호를 AI가 해석한 결과라 가짜 답 대신 연결 문제를 알려 줍니다.
+async function getBriefing(refresh) {
+  if (USE_MOCK) {
+    await new Promise(r => setTimeout(r, 900));
+    return MOCK_BRIEFING;
+  }
+  try {
+    return await request("/briefing" + (refresh ? "?refresh=true" : ""));
+  } catch (e) {
+    if (!e.status) {
+      showOfflineNotice();
+      throw new Error("서버에 연결되지 않았어요. 터미널에서 서버를 켠 뒤 다시 눌러 주세요.");
+    }
+    throw e;
+  }
+}
+
+// 서버 없이 화면만 볼 때(USE_MOCK = true) 쓰는 예시 브리핑
+const MOCK_BRIEFING = {
+  ok: true, risk_level: "높음", generated_at: "2026-11-11T19:00", cached: false,
+  signals: { bins: 9, faults: 2, open_reports: 1 },
+  headline: "모음터 B 재활용통이 곧 가득 차고, 장비 두 곳에 이상 신호가 있어요 (예시 답변)",
+  resident_notice: "오늘은 음식물과 재활용을 버리는 날이에요. 모음터 B 재활용통이 거의 찼으니 재활용은 모음터 A나 C에 버려 주세요.",
+  pickup_priority: [
+    { place: "모음터 B · 재활용", fill: 91, when: "오늘 오후 3시 전", reason: "이미 91%이고 시간당 3%씩 차고 있어요" },
+    { place: "모음터 A · 음식물", fill: 82, when: "오늘 저녁 6시 반 전", reason: "음식물은 악취가 나기 쉬워 먼저 비워야 해요" }
+  ],
+  equipment: [
+    { place: "모음터 B · 음식물", likely_cause: "저울(로드셀) 고장 또는 투입구 막힘", check: "투입구 안쪽 막힘과 저울 표시값 확인",
+      request_text: "모음터 B 음식물통 저울이 4시간째 같은 값을 보여요. 점검 부탁드립니다." }
+  ],
+  guardian_todo: ["모음터 A 옆 바닥 비닐봉투 정리", "모음터 B 음식물통 투입구 막힘 확인"],
+  dumping: "모음터 A 옆에 종량제 봉투가 아닌 비닐봉투가 방치돼 있어요."
+};
+
 // ---------- 공통 도우미 ----------
 function fillColor(fill) {
   if (fill >= 80) return "#b83232";
@@ -256,5 +292,5 @@ function fillBadge(fill) {
 function formatTime(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }

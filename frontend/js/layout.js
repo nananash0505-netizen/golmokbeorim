@@ -10,7 +10,7 @@
 
 const MENU = [
   { key: "home", name: "홈", href: "index.html" },
-  { key: "scan", name: "사진 분리배출", href: "scan.html" },
+  { key: "scan", name: "AI 도우미", href: "scan.html" },
   { key: "fill", name: "적재량", href: "dashboard.html" },
   { key: "alley", name: "골목단지", href: "join.html" }
 ];
@@ -129,6 +129,8 @@ async function renderShell() {
       showSub(a.dataset.key);
     });
     showSub(location.hash.slice(1));
+    // 주소 끝 #이름 때문에 페이지 아래로 내려가지 않게, 처음 들어오면 항상 맨 위에서 시작
+    window.scrollTo(0, 0);
   }
 
   if (document.body.dataset.closing === "1") {
@@ -138,4 +140,5 @@ async function renderShell() {
     <footer><b>골목버림</b> · 관리사무소 없는 빌라촌을 위한 AI 쓰레기 도우미 · AI+라이프스타일 해커톤 · 화면의 수치는 예시 데이터입니다</footer>`);
 }
 
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 renderShell();

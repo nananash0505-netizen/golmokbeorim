@@ -3,35 +3,82 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>골목버림 - 사진 분리배출</title>
+  <title>골목버림 - AI 도우미</title>
   <link rel="icon" href="img/logo.png">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body data-tab="scan">
   <main class="page">
+
+    <!-- 1. 분리배출 묻기 (AI) -->
     <section class="block" data-sub="photo">
       <div class="two-col">
         <div>
-          <h2 class="h-icon"><img src="img/idea.png" alt="">찍으면 버리는 법을 알려드려요</h2>
-          <p class="sub">헷갈리는 쓰레기를 사진으로 올려 주세요</p>
+          <h2 class="h-icon"><span class="ai-tag big">AI</span>찍으면 버리는 법을 알려드려요</h2>
+          <p class="sub">헷갈리는 쓰레기를 사진으로 올려 주세요. AI가 환경부 분리배출 기준 안에서만 답해요</p>
           <label for="photo">사진 선택</label>
           <input type="file" id="photo" accept="image/*" capture="environment">
           <img id="preview" class="preview" alt="올린 사진 미리보기" hidden>
           <div class="btn-row"><button id="analyzeBtn" disabled>분석하기</button></div>
         </div>
         <div id="resultCard" hidden>
-          <h2>이렇게 버려 주세요</h2>
+          <h2 class="h-icon"><span class="ai-tag">AI 판단</span>이렇게 버려 주세요</h2>
           <div id="result"></div>
         </div>
       </div>
     </section>
+
+    <!-- 2. 무단투기 사진 신고 (AI) -->
+    <section class="block" data-sub="dumping">
+      <h2 class="h-icon"><span class="ai-tag big">AI</span>무단투기 사진 신고</h2>
+      <p class="sub">모음터나 골목 사진을 올리면 AI가 무단투기인지 판단하고 신고 문구까지 만들어 드려요. 사람 얼굴은 판단에 쓰지 않아요</p>
+      <div class="two-col">
+        <div>
+          <label for="dumpPlace">찍은 곳</label>
+          <select id="dumpPlace"></select>
+          <label for="dumpPhoto">사진</label>
+          <input type="file" id="dumpPhoto" accept="image/*" capture="environment">
+          <img id="dumpPreview" class="preview" alt="올린 사진 미리보기" hidden>
+          <div class="btn-row"><button id="dumpBtn" class="navy" disabled>무단투기인지 확인하기</button></div>
+        </div>
+        <div id="dumpResult">
+          <div class="panel"><h3>아직 확인한 사진이 없어요</h3><p>사진을 올리고 확인하기를 누르면 판단 결과와 신고 문구가 여기에 나와요.</p></div>
+        </div>
+      </div>
+
+      <h3 style="margin:30px 0 8px;font-size:19px;font-weight:800">신고·감지 기록</h3>
+      <div id="dumping"></div>
+    </section>
+
+    <!-- 3. AI 골목 브리핑 -->
+    <section class="block" data-sub="briefing">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div>
+          <h2 class="h-icon"><span class="ai-tag big">AI</span>오늘의 골목 브리핑</h2>
+          <p class="sub" style="margin-bottom:0">센서 기록과 규칙이 잡은 신호를 AI가 해석해서, 주민·지킴이·수거업체가 할 일을 정리해요</p>
+        </div>
+        <button id="briefRefresh" class="navy">AI에게 다시 정리 받기</button>
+      </div>
+      <div class="signal-flow" aria-label="브리핑이 만들어지는 과정">
+        <span>적재율 기록</span><span>가득 참 예측</span><span>장비 이상 규칙</span><span>무단투기 신고</span><span>배출 일정</span>
+        <b>→</b><span class="ai-step">AI가 해석</span><b>→</b><span>오늘 할 일</span>
+      </div>
+      <div id="briefing"><div class="panel"><h3>AI가 오늘 골목을 정리하는 중이에요...</h3></div></div>
+    </section>
   </main>
 
-  <script>window.SUBTABS = [{ key: "photo", label: "사진으로 찾기" }];</script>
+  <script>
+    window.SUBTABS = [
+      { key: "photo", label: "분리배출 묻기" },
+      { key: "dumping", label: "무단투기 신고", feature: "dumping" },
+      { key: "briefing", label: "골목 브리핑" }
+    ];
+  </script>
   <script src="js/api.js"></script>
   <script src="js/features.js"></script>
   <script src="js/layout.js"></script>
   <script>
+    // ================= 분리배출 묻기 =================
     const photo = document.getElementById("photo");
     const btn = document.getElementById("analyzeBtn");
     const preview = document.getElementById("preview");
@@ -46,7 +93,7 @@
 
     btn.onclick = async () => {
       btn.disabled = true;
-      btn.textContent = "분석하는 중...";
+      btn.textContent = "AI가 사진을 보는 중...";
       try {
         const r = await classifyImage(photo.files[0]);
         document.getElementById("result").innerHTML = `
@@ -62,6 +109,234 @@
       btn.textContent = "분석하기";
       btn.disabled = false;
     };
+
+    // ================= 무단투기 신고 =================
+    let stations = [];
+    const stationName = id => (stations.find(s => s.id === id) || {}).name || "";
+
+    // ================= 무단투기: 사진 판단 → 신고 =================
+    let lastDump = null;
+    const VERDICT_BADGE = { "무단투기 의심": "full", "정상 배출": "ok", "판단 어려움": "no" };
+
+    function setupDumping() {
+      const place = document.getElementById("dumpPlace");
+      place.innerHTML = stations.map(s => `<option value="${s.id}">${s.name}</option>`).join("") +
+        '<option value="">골목 (모음터 밖)</option>';
+      const photo = document.getElementById("dumpPhoto");
+      const btn = document.getElementById("dumpBtn");
+      photo.onchange = () => {
+        if (!photo.files[0]) return;
+        const img = document.getElementById("dumpPreview");
+        img.src = URL.createObjectURL(photo.files[0]);
+        img.hidden = false;
+        btn.disabled = false;
+      };
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = "AI가 사진을 보는 중...";
+        const box = document.getElementById("dumpResult");
+        try {
+          const r = await analyzeDumpingPhoto(photo.files[0], place.value);
+          if (!r.ok) throw new Error(r.error || "판단하지 못했어요");
+          lastDump = { ...r, station_id: place.value ? Number(place.value) : null };
+          renderDumpResult(lastDump);
+        } catch (e) {
+          box.innerHTML = `<div class="panel alert"><h3>확인하지 못했어요</h3><p>${e.message}</p></div>`;
+        }
+        btn.textContent = "무단투기인지 확인하기";
+        btn.disabled = false;
+      };
+    }
+
+    function renderDumpResult(r) {
+      const box = document.getElementById("dumpResult");
+      const suspect = r.verdict === "무단투기 의심";
+      box.innerHTML = `
+        <div class="panel ${suspect ? "alert" : r.verdict === "정상 배출" ? "good" : ""}">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <span class="badge ${VERDICT_BADGE[r.verdict] || "no"}">${r.verdict}</span>
+            ${suspect ? `<span class="badge warn">심각도 ${r.severity}</span>` : ""}
+            ${r.estimated_bags ? `<span class="badge info">봉투·상자 약 ${r.estimated_bags}개</span>` : ""}
+            ${r.blocks_path ? '<span class="badge full">보행로 막힘</span>' : ""}
+          </div>
+          <h3>${r.summary}</h3>
+          ${r.violations.length ? `<ol style="margin:8px 0 0;color:var(--text)">${r.violations.map(v => `<li>${v}</li>`).join("")}</ol>` : ""}
+          ${r.action ? `<p style="margin-top:8px"><b>정리 방법</b> ${r.action}</p>` : ""}
+          ${r.privacy_note ? `<p style="margin-top:6px;color:var(--full)">${r.privacy_note}</p>` : ""}
+        </div>
+        ${suspect ? `
+          <label for="reportText">신고 문구 (고쳐서 보낼 수 있어요)</label>
+          <textarea id="reportText" rows="4">${r.report_text}</textarea>
+          <div class="btn-row">
+            <button class="navy" data-target="guardian">골목 지킴이에게 정리 요청</button>
+            <button class="ghost" data-target="city">지자체(청소행정과)에 신고</button>
+          </div>
+          <p class="muted" id="reportMsg"></p>` : ""}`;
+
+      box.querySelectorAll("[data-target]").forEach(b => b.onclick = async () => {
+        const text = document.getElementById("reportText").value.trim();
+        const msg = document.getElementById("reportMsg");
+        if (!text) { msg.textContent = "신고 문구를 입력해 주세요"; msg.style.color = "var(--full)"; return; }
+        try {
+          await sendDumpingReport({
+            station_id: r.station_id, verdict: r.verdict, severity: r.severity,
+            summary: r.summary, report_text: text, target: b.dataset.target
+          });
+          const who = b.dataset.target === "guardian" ? "이번 주 골목 지킴이에게" : "청소행정과에";
+          msg.style.color = "var(--ok)";
+          msg.textContent = `${who} 보냈어요. 아래 기록에서 처리 상태를 볼 수 있어요.`;
+          box.querySelectorAll("[data-target]").forEach(x => x.disabled = true);
+          showToast("무단투기 신고 접수", `${who} 신고 내용을 보냈어요.`);
+          drawDumping();
+        } catch (e) {
+          msg.style.color = "var(--full)";
+          msg.textContent = "보내지 못했어요: " + e.message;
+        }
+      });
+    }
+
+    async function drawDumping() {
+      const reports = await getDumpingReports().catch(() => []);
+      const reportCards = reports.map(rp => {
+        const done = rp.status === "처리 완료";
+        return `
+          <div class="panel ${done ? "" : "alert"}">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+              <span class="badge ${done ? "ok" : "full"}">${rp.status}</span>
+              <span class="badge info">${rp.target === "guardian" ? "지킴이 정리 요청" : "지자체 신고"}</span>
+              <span class="badge no">사진 판단</span>
+            </div>
+            <h3>${rp.station_id ? stationName(rp.station_id) : "골목 (모음터 밖)"}</h3>
+            <p>${formatTime(rp.created_at)} · ${rp.report_text}</p>
+            ${done ? "" : `<div class="btn-row"><button class="small ghost" data-done="${rp.id}">정리 완료로 바꾸기</button></div>`}
+          </div>`;
+      }).join("");
+
+      const cameraCards = DUMPING_EVENTS.map(ev => {
+        const done = ev.status === "done";
+        return `
+          <div class="panel ${done ? "" : "caution"}">
+            <div style="margin-bottom:6px"><span class="badge no">카메라 감지 예시</span></div>
+            <h3>${stationName(ev.stationId)}</h3>
+            <p>${formatTime(ev.time)} · ${ev.what}</p>
+            <div class="btn-row">
+              ${done ? '<span class="badge ok">정리 완료</span>' : `
+                <button class="small navy" data-act="guard">지킴이에게 정리 요청</button>
+                <button class="small ghost" data-act="report">지자체에 신고</button>`}
+            </div>
+          </div>`;
+      }).join("");
+
+      document.getElementById("dumping").innerHTML = reportCards + cameraCards;
+      document.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
+        await markReportDone(Number(b.dataset.done));
+        showToast("처리 완료", "신고를 정리 완료로 바꿨어요.");
+        drawDumping();
+      });
+      document.querySelectorAll("[data-act]").forEach(btn => btn.onclick = () => {
+        const msg = btn.dataset.act === "guard" ? "이번 주 지킴이에게 정리 요청을 보냈어요" : "청소행정과에 신고 내용을 보냈어요";
+        btn.parentElement.innerHTML = `<span class="badge info">${msg}</span>`;
+        showToast("무단투기 처리", msg);
+      });
+    }
+
+
+    // ================= AI 골목 브리핑 =================
+    const RISK_BADGE = { "높음": "full", "보통": "warn", "낮음": "ok" };
+
+    async function loadBriefing(refresh) {
+      const box = document.getElementById("briefing");
+      const rb = document.getElementById("briefRefresh");
+      rb.disabled = true;
+      rb.textContent = "AI가 정리하는 중...";
+      if (refresh) box.innerHTML = '<div class="panel"><h3>AI가 오늘 골목을 다시 정리하는 중이에요...</h3></div>';
+      try {
+        const b = await getBriefing(refresh);
+        if (!b.ok) throw new Error(b.error || "정리하지 못했어요");
+        renderBriefing(b);
+      } catch (e) {
+        box.innerHTML = `<div class="panel alert"><h3>브리핑을 만들지 못했어요</h3><p>${e.message}</p></div>`;
+      }
+      rb.textContent = "AI에게 다시 정리 받기";
+      rb.disabled = false;
+    }
+
+    function renderBriefing(b) {
+      const when = b.generated_at ? formatTime(b.generated_at) : "";
+      const pickup = b.pickup_priority.map((p, i) => `
+        <div class="row" style="display:block">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span><b>${i + 1}.</b> ${p.place}</span>
+            <span>${p.fill != null ? p.fill + "% " + fillBadge(p.fill) : ""}</span>
+          </div>
+          ${p.fill != null ? `<div class="bar"><div style="width:${p.fill}%;background:${fillColor(p.fill)}"></div></div>` : ""}
+          <p class="muted" style="margin:6px 0 0"><b>${p.when}</b> · ${p.reason}</p>
+        </div>`).join("") || '<p class="muted">급하게 비울 통이 없어요</p>';
+
+      const equipment = b.equipment.map((e, i) => `
+        <div class="panel alert">
+          <h3>${e.place}</h3>
+          <p><b>가능성 높은 원인</b> ${e.likely_cause}</p>
+          <p style="margin-top:4px"><b>현장 확인</b> ${e.check}</p>
+          <p style="margin-top:8px;color:var(--text)">“${e.request_text}”</p>
+          <div class="btn-row"><button class="small navy" data-repair="${i}">이 문구로 수리 요청</button></div>
+        </div>`).join("") || '<div class="panel good"><h3>장비 이상 신호가 없어요</h3></div>';
+
+      document.getElementById("briefing").innerHTML = `
+        <div class="panel ${b.risk_level === "높음" ? "alert" : b.risk_level === "보통" ? "caution" : "good"}" style="margin-top:16px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <span class="ai-tag">AI 브리핑</span>
+            <span class="badge ${RISK_BADGE[b.risk_level] || "no"}">오늘 위험도 ${b.risk_level}</span>
+            ${b.signals ? `<span class="badge no">신호 ${b.signals.bins}개 통 · 장비 이상 ${b.signals.faults} · 미처리 신고 ${b.signals.open_reports}</span>` : ""}
+            ${when ? `<span class="badge no">${when} 정리${b.cached ? " (최근 결과)" : ""}</span>` : ""}
+          </div>
+          <h3 style="font-size:20px">${b.headline}</h3>
+        </div>
+
+        <div class="two-col" style="margin-top:6px">
+          <div>
+            <h3 class="brief-h">주민에게 보낼 공지</h3>
+            <div class="panel"><p style="color:var(--text);font-size:16px;line-height:1.7">${b.resident_notice}</p>
+              <div class="btn-row"><button class="small navy" id="sendNotice">골목 주민에게 공지 보내기</button></div></div>
+
+            <h3 class="brief-h">골목 지킴이 할 일</h3>
+            <div class="panel">${b.guardian_todo.length ? `<ol style="margin:0">${b.guardian_todo.map(t => `<li>${t}</li>`).join("")}</ol>` : '<p>오늘은 할 일이 없어요</p>'}</div>
+            ${b.dumping ? `<h3 class="brief-h">무단투기</h3><div class="panel caution"><p style="color:var(--text)">${b.dumping}</p></div>` : ""}
+          </div>
+          <div>
+            <h3 class="brief-h">수거업체: 먼저 비울 곳</h3>
+            <div class="panel">${pickup}</div>
+            <h3 class="brief-h">장비 점검</h3>
+            ${equipment}
+          </div>
+        </div>
+        <p class="muted" style="margin-top:14px">적재율 예측과 장비 이상은 센서 기록과 규칙으로 계산하고, AI는 그 결과를 해석해 할 일과 문구를 만들어요. AI 결과는 사람이 확인한 뒤 보내요.</p>`;
+
+      document.getElementById("sendNotice").onclick = e => {
+        e.target.parentElement.innerHTML = '<span class="badge info">골목 주민에게 공지를 보냈어요</span>';
+        showToast("AI 공지 발송", b.resident_notice);
+      };
+      document.querySelectorAll("[data-repair]").forEach(btn => btn.onclick = () => {
+        btn.parentElement.innerHTML = '<span class="badge warn">수리 요청됨 · 수거업체 확인 대기</span>';
+        showToast("수리 요청 완료", b.equipment[Number(btn.dataset.repair)].request_text);
+      });
+    }
+
+    document.getElementById("briefRefresh").onclick = () => loadBriefing(true);
+
+    let briefingLoaded = false;
+    function maybeLoadBriefing(key) {
+      if (key === "briefing" && !briefingLoaded) { briefingLoaded = true; loadBriefing(false); }
+    }
+    document.addEventListener("subtabchange", e => maybeLoadBriefing(e.detail));
+
+    async function load() {
+      const f = getFeatures();
+      stations = await getStations();
+      if (f.dumping) { setupDumping(); drawDumping(); }
+      if (!document.querySelector('[data-sub="briefing"]').hidden) maybeLoadBriefing("briefing");
+    }
+    load();
   </script>
 </body>
 </html>

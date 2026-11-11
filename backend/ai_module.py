@@ -404,3 +404,87 @@ def analyze_dumping(image_bytes: bytes, place: str = "") -> dict:
             messages.append({"role": "assistant", "content": out or "(빈 응답)"})
             messages.append({"role": "user", "content": "지정한 JSON 형식 하나만 다시 출력해 주세요."})
     return _dumping_error("AI 응답을 해석하지 못했어요. 다시 시도해 주세요.")
+
+
+# ── 공개 함수 4: AI 골목 브리핑 (규칙·통계 신호 → AI가 할 일을 정리) ──
+BRIEFING_PROMPT = """당신은 관리사무소가 없는 빌라촌 골목의 '디지털 관리사무소' 역할을 하는 AI 도우미 '골목버림'입니다.
+서버가 센서 기록과 규칙으로 계산한 신호(모음터 적재율, 가득 찰 예상 시각, 장비 이상 의심, 무단투기 신고, 오늘 배출 일정)를 JSON으로 받습니다.
+이 신호를 해석해서 주민, 골목 지킴이, 수거업체가 오늘 해야 할 일을 정리해 주세요.
+
+원칙:
+1. 받은 데이터에 있는 장소, 숫자, 시각만 쓰세요. 없는 사실이나 숫자를 지어내지 마세요.
+2. 시각은 "오늘 밤 10시", "내일 아침 8시"처럼 사람이 읽기 쉽게 바꾸되, 기준 시각(now)을 기준으로 판단하세요.
+3. 주민 공지는 해요체로 2~3문장. 오늘 버릴 수 있는 것과 가득 찰 모음터를 피해서 버릴 곳을 알려 주세요.
+4. pickup_priority는 수거업체가 먼저 비울 통 순서로 최대 3개. 적재율과 가득 찰 시각을 함께 보고 정하세요.
+5. equipment는 장비 이상 의심(status가 suspect)인 통마다 하나씩. 신호 유형으로 가능성 높은 원인과 현장에서 확인할 것을 쓰고,
+   수거업체에 보낼 수리 요청 문구(1~2문장)를 써 주세요. 이상이 없으면 빈 배열.
+   - spike(무게가 갑자기 튐): 센서 오작동, 무거운 이물질 투입 가능성
+   - stuck(문은 열리는데 무게 변화 없음): 저울(로드셀) 고장, 투입구 막힘 가능성
+6. guardian_todo는 이번 주 골목 지킴이가 할 일 2~4개 (무단투기 정리 포함).
+7. dumping은 처리 안 된 무단투기 신고를 한두 문장으로 요약. 없으면 빈 문자열.
+8. risk_level은 오늘 골목 상황 전체를 "높음 | 보통 | 낮음" 중 하나로.
+
+출력 형식: 아래 JSON 하나만 출력하세요. 설명이나 코드블록 표시는 붙이지 마세요.
+{
+  "headline": "오늘 골목 상황 한 문장",
+  "risk_level": "보통",
+  "resident_notice": "주민 공지문",
+  "pickup_priority": [{"place": "모음터 B · 재활용", "fill": 91, "when": "오늘 밤 10시 전", "reason": "이유 한 문장"}],
+  "equipment": [{"place": "모음터 B · 음식물", "likely_cause": "가능성 높은 원인", "check": "현장에서 확인할 것", "request_text": "수리 요청 문구"}],
+  "guardian_todo": ["할 일"],
+  "dumping": "무단투기 요약"
+}"""
+
+
+def _briefing_error(message: str) -> dict:
+    return {"ok": False, "headline": message, "risk_level": "보통", "resident_notice": "", "pickup_priority": [],
+            "equipment": [], "guardian_todo": [], "dumping": "", "error": message, "model": MODEL}
+
+
+def _validate_briefing(r: dict) -> dict:
+    def _s(v):
+        return str(v or "").strip()
+    pickup = []
+    for p in (r.get("pickup_priority") or [])[:3]:
+        try:
+            fill = int(round(float(p.get("fill"))))
+        except (TypeError, ValueError):
+            fill = None
+        pickup.append({"place": _s(p.get("place")), "fill": fill, "when": _s(p.get("when")), "reason": _s(p.get("reason"))})
+    equipment = [{"place": _s(e.get("place")), "likely_cause": _s(e.get("likely_cause")),
+                  "check": _s(e.get("check")), "request_text": _s(e.get("request_text"))}
+                 for e in (r.get("equipment") or [])[:5]]
+    return {
+        "ok": True,
+        "headline": _s(r.get("headline")),
+        "risk_level": r.get("risk_level") if r.get("risk_level") in ("높음", "보통", "낮음") else "보통",
+        "resident_notice": _s(r.get("resident_notice")),
+        "pickup_priority": pickup,
+        "equipment": equipment,
+        "guardian_todo": [_s(t) for t in (r.get("guardian_todo") or []) if _s(t)][:4],
+        "dumping": _s(r.get("dumping")),
+        "model": MODEL,
+    }
+
+
+def generate_briefing(context: dict) -> dict:
+    """
+    서버가 모은 골목 신호(context)를 AI가 해석해 오늘 할 일을 정리한다.
+    반환: {"ok", "headline", "risk_level", "resident_notice", "pickup_priority", "equipment", "guardian_todo", "dumping"}
+    """
+    messages = [{"role": "user", "content": "오늘 골목 신호입니다. 정리해 주세요.\n" +
+                 json.dumps(context, ensure_ascii=False, indent=1)}]
+    for attempt in range(2):
+        try:
+            response = client.messages.create(model=MODEL, max_tokens=MAX_TOKENS, system=BRIEFING_PROMPT, messages=messages)
+        except anthropic.APIError as e:
+            return _briefing_error(f"AI 호출 실패: {e}")
+        out = "".join(b.text for b in response.content if b.type == "text")
+        if DEBUG:
+            print(f"[DEBUG] 브리핑 시도 {attempt + 1}\n{out}\n")
+        try:
+            return _validate_briefing(_extract_json(out))
+        except (ValueError, json.JSONDecodeError):
+            messages.append({"role": "assistant", "content": out or "(빈 응답)"})
+            messages.append({"role": "user", "content": "지정한 JSON 형식 하나만 다시 출력해 주세요."})
+    return _briefing_error("AI 응답을 해석하지 못했어요. 다시 시도해 주세요.")

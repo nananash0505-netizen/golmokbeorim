@@ -411,3 +411,51 @@ button.small { border-radius: 0; }
 .panel.good    { border-color: var(--st-good); }
 .panel.caution { border-color: var(--st-mid); }
 .panel.alert   { border-color: var(--st-bad); }
+
+/* 홈 소식 카드 3개 줄 */
+.news-row.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 900px) { .news-row.three { grid-template-columns: 1fr; } }
+
+/* =========================================================
+   AI 표시와 AI 브리핑
+   ========================================================= */
+.ai-tag {
+  display: inline-block; flex-shrink: 0;
+  background: var(--blue); color: #fff; border: 1.5px solid var(--blue);
+  font-size: 12px; font-weight: 800; letter-spacing: .02em; line-height: 1.4;
+  padding: 1px 7px; border-radius: 0; vertical-align: 2px;
+}
+.ai-tag.big { font-size: 15px; padding: 2px 9px; }
+.ai-tag.light { background: #fff; color: var(--navy); border-color: #fff; }
+
+.menu-card a { position: relative; }
+.ai-mark {
+  position: absolute; top: 2px; left: 50%; transform: translateX(16px);
+  font-style: normal; font-size: 11px; font-weight: 800;
+  background: var(--blue); color: #fff; padding: 1px 6px; line-height: 1.4;
+}
+
+.signal-flow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 16px 0 4px;
+  font-size: 13px; color: var(--muted);
+}
+.signal-flow span { border: 1px solid #cdd4de; padding: 3px 9px; background: #fff; }
+.signal-flow .ai-step { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 800; }
+.signal-flow b { color: var(--navy); }
+.brief-h { margin: 22px 0 8px; font-size: 18px; font-weight: 800; }
+
+.home-brief {
+  background: var(--navy); color: #fff; border: 1.5px solid var(--navy);
+  padding: 30px 32px; max-width: 900px; margin: 0 auto;
+}
+.home-brief .hb-top { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.home-brief h3 { margin: 0 0 18px; font-size: clamp(20px, 2.6vw, 26px); font-weight: 800; line-height: 1.4; letter-spacing: -0.02em; }
+.home-brief .hb-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; margin-bottom: 22px; }
+.home-brief .hb-label { font-size: 13px; font-weight: 800; color: #8ec0ff; margin-bottom: 6px; }
+.home-brief p, .home-brief li { color: #dbe4f7; font-size: 15px; line-height: 1.65; margin: 0; }
+.home-brief ol { margin: 0; padding-left: 1.2em; }
+.home-brief li b { color: #fff; }
+.home-brief .hb-msg { margin-bottom: 18px; }
+.home-brief .btn { background: #fff; color: var(--navy); }
+.home-brief .btn:hover { background: #eaf3fe; }
+@media (max-width: 700px) { .home-brief { padding: 22px 20px; } .home-brief .hb-grid { grid-template-columns: 1fr; } }

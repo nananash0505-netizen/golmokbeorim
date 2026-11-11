@@ -26,7 +26,7 @@
   </div>
 
   <main class="page">
-    <section class="block" data-sub="town" id="town">
+    <section class="block" data-sub="town">
       <div class="two-col">
         <div>
           <h2 class="h-icon"><img src="img/villa.svg" alt=""><span id="clusterName">우리 골목 단지</span></h2>
@@ -48,7 +48,7 @@
       </div>
     </section>
 
-    <section class="block" data-sub="guardian" id="guardian">
+    <section class="block" data-sub="guardian">
       <div class="two-col">
         <div>
           <h2 class="h-icon"><img src="img/person.png" alt="">골목 지킴이</h2>
@@ -68,7 +68,7 @@
       </div>
     </section>
 
-    <section class="block" data-sub="retention" id="retention">
+    <section class="block" data-sub="retention">
       <div class="two-col">
         <div>
           <h2 class="h-icon"><img src="img/flower.png" alt="">우리 골목 참여 현황</h2>
@@ -134,7 +134,7 @@
         if (!text) { msg.textContent = "찾을 동네 이름을 입력해 주세요"; msg.hidden = false; return; }
         const r = findRegion(text);
         if (!r) {
-          msg.textContent = `'${text}'에는 아직 골목버림이 없어요. 위쪽 '우리 골목 신청하기'로 알려 주세요`;
+          msg.textContent = `'${text}'에는 아직 골목버림이 없어요. '우리 단지' 탭에서 우리 빌라 참여를 신청할 수 있어요`;
           msg.hidden = false;
           return;
         }
@@ -144,6 +144,15 @@
       document.getElementById("searchInput").addEventListener("input", () => document.getElementById("searchMsg").hidden = true);
 
       showRegion(REGIONS[0]);
+
+      // 홈의 '다른 동네 찾기'로 들어오면 검색창에 바로 입력할 수 있게
+      if (location.hash === "#search") {
+        history.replaceState(null, "", "#map");
+        const input = document.getElementById("searchInput");
+        input.focus();
+        input.closest(".map-search").style.outline = "3px solid #9cc4f5";
+        input.addEventListener("input", () => input.closest(".map-search").style.outline = "", { once: true });
+      }
     }
 
     async function regionSites(region) {
