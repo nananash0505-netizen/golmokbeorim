@@ -232,7 +232,11 @@ input, select {
   width: 100%; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
   font: inherit; font-size: 15px; margin: 6px 0 14px;
 }
-input:focus, select:focus { border-color: var(--blue); outline: none; }
+textarea {
+  width: 100%; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff;
+  font: inherit; font-size: 15px; line-height: 1.6; margin: 6px 0 4px; resize: vertical;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--blue); outline: none; }
 a:focus-visible, button:focus-visible, .chip:focus-visible { outline: 3px solid #9cc1f5; outline-offset: 2px; }
 
 .switch { position: relative; width: 46px; height: 28px; flex-shrink: 0; }
@@ -337,3 +341,73 @@ ol { padding-left: 1.3em; }
   .float-btns button { width: 72px; height: 72px; font-size: 12px; }
   .float-btns .blue { display: none; }
 }
+
+/* =========================================================
+   각진 박스 스타일 (모서리 없음 + 테두리)
+   상태는 배경색 대신 테두리 색과 위쪽 굵은 선으로 구분
+   ========================================================= */
+.panel {
+  background: #fff;
+  border: 1.5px solid #cdd4de;
+  border-radius: 0;
+  padding: 18px 20px;
+}
+.panel.alert   { background: #fff; border-color: #d44848; border-top-width: 5px; }
+.panel.caution { background: #fff; border-color: #c98a1e; border-top-width: 5px; }
+.panel.good    { background: #fff; border-color: #1f8a6a; border-top-width: 5px; }
+.panel.navy    { background: var(--navy); border-color: var(--navy); }
+.panel h3 { font-size: 17px; line-height: 1.5; }
+.panel p { color: #4f5966; }
+.panel.navy p { color: #c9d4ef; }
+.panel ol { padding-left: 1.4em; }
+.panel ol li { margin: 5px 0; line-height: 1.6; }
+
+.badge {
+  border-radius: 0;
+  background: #fff;
+  border: 1.5px solid currentColor;
+  padding: 2px 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.badge.ok   { background: #fff; color: var(--ok); }
+.badge.no   { background: #fff; color: var(--muted); border-color: #cdd4de; }
+.badge.warn { background: #fff; color: var(--warn); }
+.badge.full { background: var(--full); color: #fff; border-color: var(--full); }
+.badge.info { background: #fff; color: var(--blue-deep); }
+.badge.navy { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+button, .btn, .chip, input, select, textarea,
+.preview, .site, .news, .feature-split, .menu-card, .map-search, .map-search form,
+.outline-btn, #map, #alleyMap { border-radius: 0; }
+button.small { border-radius: 0; }
+.bar, .bar > div { border-radius: 0; }
+.bar { background: #fff; border: 1px solid #cdd4de; }
+.site { border-width: 1.5px; }
+.site.selected { border-color: var(--navy); border-width: 2px; }
+.news { border: 1.5px solid #cdd4de; background: #fff; }
+.feature-split { border: 1.5px solid #cdd4de; background: #fff; }
+.menu-card { border: 1.5px solid #cdd4de; }
+.subtabs a.active::after { border-radius: 0; }
+
+/* hidden 속성이 붙은 요소는 항상 숨김 (사진 올리기 전 빈 미리보기 등) */
+[hidden] { display: none !important; }
+
+/* =========================================================
+   상태 색을 파랑 한 계열로 통일
+   좋음(여유·정상·처리 완료) = 연한 파랑
+   주의(보통·확인 필요)       = 중간 파랑
+   나쁨(곧 가득·이상·무단투기) = 진한 남색
+   ========================================================= */
+:root {
+  --st-good: #9cc4f5;   --st-good-bg: #eaf3fe;  --st-good-text: #2f6fd0;
+  --st-mid:  #4d8fe3;
+  --st-bad:  #0d2b6e;
+}
+.badge.ok   { background: var(--st-good-bg); color: var(--st-good-text); border-color: var(--st-good); }
+.badge.warn { background: var(--st-mid); color: #fff; border-color: var(--st-mid); }
+.badge.full { background: var(--st-bad); color: #fff; border-color: var(--st-bad); }
+
+.panel.good    { border-color: var(--st-good); }
+.panel.caution { border-color: var(--st-mid); }
+.panel.alert   { border-color: var(--st-bad); }

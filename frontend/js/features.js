@@ -188,3 +188,22 @@ function findRegion(text) {
   if (!q) return null;
   return REGIONS.find(r => r.keywords.some(k => q.includes(k) || k.includes(q))) || null;
 }
+
+// ---------- 파랑 한 계열 색 (api.js의 같은 이름 함수를 덮어씀) ----------
+// 적재율 0%  → 아주 연한 하늘색 (#d6e6fb)
+// 적재율 50% → 중간 파랑     (#4d8fe3)
+// 적재율 100% → 아주 진한 남색 (#0d2b6e)
+const BLUE_STEPS = [[214, 230, 251], [77, 143, 227], [13, 43, 110]];
+
+function fillColor(fill) {
+  const t = Math.max(0, Math.min(100, Number(fill) || 0)) / 100;
+  const [a, b, k] = t < 0.5 ? [BLUE_STEPS[0], BLUE_STEPS[1], t / 0.5] : [BLUE_STEPS[1], BLUE_STEPS[2], (t - 0.5) / 0.5];
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+function fillBadge(fill) {
+  if (fill >= 80) return '<span class="badge full">곧 가득</span>';
+  if (fill >= 60) return '<span class="badge warn">보통</span>';
+  return '<span class="badge ok">여유</span>';
+}

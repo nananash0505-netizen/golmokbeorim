@@ -56,7 +56,7 @@
           <p class="muted">AI 확신도 ${Math.round(r.confidence * 100)}%</p>`;
       } catch (e) {
         document.getElementById("result").innerHTML =
-          '<div class="panel alert"><h3>분석하지 못했어요</h3><p>사진을 다시 올리거나 잠시 후 다시 눌러 주세요.</p></div>';
+          `<div class="panel alert"><h3>분석하지 못했어요</h3><p>${e.message || "사진을 다시 올리거나 잠시 후 다시 눌러 주세요."}</p></div>`;
       }
       document.getElementById("resultCard").hidden = false;
       btn.textContent = "분석하기";
