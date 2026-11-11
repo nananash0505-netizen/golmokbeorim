@@ -7,3 +7,8 @@ test_images/
 test_results_*.csv
 .DS_Store
 __MACOSX/
+
+test_images/
+test_results_*.csv
+.DS_Store
+__MACOSX/
