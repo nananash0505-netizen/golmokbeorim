@@ -1,9 +1,10 @@
 
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 데이터베이스 연결
-conn = sqlite3.connect("garbage.db")
+conn = sqlite3.connect(Path(__file__).parent / "garbage.db")  # main.py 옆의 DB 파일
 cursor = conn.cursor()
 
 # 1. 모음터 테이블
@@ -68,6 +69,21 @@ CREATE TABLE IF NOT EXISTS buildings (
     name TEXT NOT NULL,
     households INTEGER NOT NULL,
     FOREIGN KEY (cluster_id) REFERENCES clusters(id)
+)
+""")
+
+# 7. 무단투기 신고 테이블
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS dumping_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    station_id INTEGER,
+    verdict TEXT NOT NULL,
+    severity TEXT,
+    summary TEXT,
+    report_text TEXT,
+    target TEXT NOT NULL,
+    status TEXT NOT NULL
 )
 """)
 
