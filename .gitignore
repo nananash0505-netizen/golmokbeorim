@@ -3,3 +3,7 @@ __pycache__/
 .env
 .venv/
 garbage.db
+test_images/
+test_results_*.csv
+.DS_Store
+__MACOSX/
