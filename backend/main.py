@@ -14,15 +14,18 @@
  +  DB 파일은 main.py 옆의 garbage.db를 정확히 가리킴
 """
 
+import hashlib
 import json
 import os
+import re
+import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -231,6 +234,147 @@ async def classify(image: UploadFile = File(...)):
 
 
 # =========================================================
+# 회원가입 · 로그인
+#  - 비밀번호는 그대로 저장하지 않고 PBKDF2(SHA-256, 20만 번)로 암호화해서 저장
+#  - 로그인하면 무작위 토큰을 발급하고, 화면은 요청할 때 Authorization: Bearer 토큰 을 보냄
+# =========================================================
+def ensure_user_tables():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            pw_salt TEXT NOT NULL,
+            pw_hash TEXT NOT NULL,
+            nickname TEXT NOT NULL,
+            building TEXT NOT NULL,
+            unit TEXT,
+            created_at TEXT NOT NULL
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )""")
+    conn.commit()
+    conn.close()
+
+
+if DB_PATH.exists():
+    ensure_user_tables()
+
+
+def _token_of(authorization: Optional[str]) -> str:
+    a = (authorization or "").strip()
+    return a[7:].strip() if a.lower().startswith("bearer ") else a
+
+
+def _hash_pw(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
+
+
+def _public_user(u) -> dict:
+    return {"id": u["id"], "username": u["username"], "nickname": u["nickname"],
+            "building": u["building"], "unit": u["unit"]}
+
+
+def _new_session(conn, user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    conn.execute("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+                 (token, user_id, datetime.now().strftime("%Y-%m-%dT%H:%M")))
+    return token
+
+
+def current_user(authorization: Optional[str], required: bool = True):
+    """Authorization 머리글의 토큰으로 로그인한 사람을 찾는다."""
+    token = _token_of(authorization)
+    user = None
+    if token:
+        ensure_user_tables()
+        conn = get_db()
+        user = conn.execute(
+            "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?", (token,)
+        ).fetchone()
+        conn.close()
+    if user is None and required:
+        raise HTTPException(401, "로그인이 필요해요. 다시 로그인해 주세요.")
+    return user
+
+
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+    nickname: str
+    building: str
+    unit: Optional[str] = ""
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/signup")
+def signup(req: SignupRequest):
+    username = req.username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{4,20}", username):
+        raise HTTPException(422, "아이디는 영문 소문자, 숫자, _ 로 4~20자여야 해요.")
+    if len(req.password) < 6:
+        raise HTTPException(422, "비밀번호는 6자 이상이어야 해요.")
+    if not req.nickname.strip() or not req.building.strip():
+        raise HTTPException(422, "이름(닉네임)과 사는 빌라를 입력해 주세요.")
+    ensure_user_tables()
+    salt = secrets.token_hex(16)
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT INTO users (username, pw_salt, pw_hash, nickname, building, unit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (username, salt, _hash_pw(req.password, salt), req.nickname.strip()[:20], req.building.strip()[:40],
+             (req.unit or "").strip()[:10], datetime.now().strftime("%Y-%m-%dT%H:%M")),
+        )
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(409, "이미 쓰고 있는 아이디예요. 다른 아이디를 골라 주세요.")
+    token = _new_session(conn, cur.lastrowid)
+    conn.commit()
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return {"token": token, "user": _public_user(user)}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    ensure_user_tables()
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE username = ?", (req.username.strip().lower(),)).fetchone()
+    if user is None or not secrets.compare_digest(_hash_pw(req.password, user["pw_salt"]), user["pw_hash"]):
+        conn.close()
+        raise HTTPException(401, "아이디 또는 비밀번호가 맞지 않아요.")
+    token = _new_session(conn, user["id"])
+    conn.commit()
+    conn.close()
+    return {"token": token, "user": _public_user(user)}
+
+
+@app.get("/auth/me")
+def me(authorization: Optional[str] = Header(None)):
+    return _public_user(current_user(authorization))
+
+
+@app.post("/auth/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    token = _token_of(authorization)
+    if token:
+        ensure_user_tables()
+        conn = get_db()
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+    return {"ok": True}
+
+
+# =========================================================
 # 무단투기: 사진 판단 → 신고 저장 → 신고 목록
 # =========================================================
 def ensure_report_table():
@@ -248,6 +392,9 @@ def ensure_report_table():
             target TEXT NOT NULL,          -- guardian(골목 지킴이) | city(지자체)
             status TEXT NOT NULL           -- 접수 | 처리 완료
         )""")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(dumping_reports)")]
+    if "reporter" not in cols:  # 예전 DB에는 신고자 칸이 없어서 추가
+        conn.execute("ALTER TABLE dumping_reports ADD COLUMN reporter TEXT")
     conn.commit()
     conn.close()
 
@@ -284,7 +431,8 @@ class ReportRequest(BaseModel):
 
 # 신고 저장
 @app.post("/dumping/report")
-def dumping_report(req: ReportRequest):
+def dumping_report(req: ReportRequest, authorization: Optional[str] = Header(None)):
+    user = current_user(authorization)  # 로그인한 주민만 신고할 수 있음
     if req.target not in ("guardian", "city"):
         raise HTTPException(422, "신고 대상은 guardian 또는 city만 가능해요.")
     if not req.report_text.strip():
@@ -292,10 +440,10 @@ def dumping_report(req: ReportRequest):
     ensure_report_table()
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO dumping_reports (created_at, station_id, verdict, severity, summary, report_text, target, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, '접수')""",
+        """INSERT INTO dumping_reports (created_at, station_id, verdict, severity, summary, report_text, target, status, reporter)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '접수', ?)""",
         (datetime.now().strftime("%Y-%m-%dT%H:%M"), req.station_id, req.verdict, req.severity,
-         req.summary, req.report_text.strip(), req.target),
+         req.summary, req.report_text.strip(), req.target, f"{user['nickname']} ({user['building']})"),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM dumping_reports WHERE id = ?", (cur.lastrowid,)).fetchone()

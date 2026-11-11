@@ -459,3 +459,22 @@ button.small { border-radius: 0; }
 .home-brief .btn { background: #fff; color: var(--navy); }
 .home-brief .btn:hover { background: #eaf3fe; }
 @media (max-width: 700px) { .home-brief { padding: 22px 20px; } .home-brief .hb-grid { grid-template-columns: 1fr; } }
+
+
+/* ---------- 로그인 ---------- */
+.auth-area { display: flex; align-items: center; gap: 10px; }
+.auth-user { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.auth-user b { color: var(--text); }
+.hero-top .auth-user, .hero-top .auth-user b { color: #fff; }
+.auth-box { max-width: 440px; margin: 10px auto 0; }
+.auth-box h2 { margin: 0 0 4px; }
+.auth-box label { display: block; margin-top: 14px; }
+.auth-box input, .auth-box select { width: 100%; margin: 6px 0 0; }
+.auth-box #suBuildingOther { margin-top: 8px; }
+.auth-box .btn-row button { flex: 1; }
+.auth-box .hint { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.auth-msg { min-height: 20px; margin-top: 10px; font-size: 14px; font-weight: 600; }
+.auth-msg.err { color: var(--full); }
+.auth-msg.ok { color: var(--ok); }
+.need-login { margin-top: 10px; }
+@media (max-width: 720px) { .auth-user { display: none; } }

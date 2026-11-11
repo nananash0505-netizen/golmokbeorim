@@ -212,7 +212,7 @@ async function analyzeDumpingPhoto(file, stationId) {
 async function sendDumpingReport(data) {
   return fromServer(
     () => request("/dumping/report", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeader() }, body: JSON.stringify(data)
     }),
     () => ({ id: Date.now(), created_at: new Date().toISOString().slice(0, 16), status: "접수", ...data })
   );
@@ -293,4 +293,67 @@ function formatTime(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+
+// =============================================================
+// 회원가입 · 로그인
+// 로그인하면 서버가 준 토큰을 이 브라우저에 저장해 두고,
+// 신고처럼 로그인이 필요한 요청에 함께 보냅니다.
+// =============================================================
+const AUTH_KEY = "golmok_auth";
+
+function getAuth() {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || null; } catch (e) { return null; }
+}
+function getCurrentUser() { const a = getAuth(); return a ? a.user : null; }
+function saveAuth(data) { try { localStorage.setItem(AUTH_KEY, JSON.stringify(data)); } catch (e) {} }
+function clearAuth() { try { localStorage.removeItem(AUTH_KEY); } catch (e) {} }
+function authHeader() { const a = getAuth(); return a ? { Authorization: "Bearer " + a.token } : {}; }
+
+async function authRequest(path, body) {
+  try {
+    return await request(path, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    });
+  } catch (e) {
+    if (!e.status) throw new Error("서버에 연결되지 않았어요. 터미널에서 서버를 켠 뒤 다시 눌러 주세요.");
+    throw e;
+  }
+}
+
+async function signup(form) {
+  const data = await authRequest("/auth/signup", form);
+  saveAuth(data);
+  return data.user;
+}
+
+async function login(username, password) {
+  const data = await authRequest("/auth/login", { username, password });
+  saveAuth(data);
+  return data.user;
+}
+
+async function logout() {
+  try { await request("/auth/logout", { method: "POST", headers: authHeader() }); } catch (e) {}
+  clearAuth();
+}
+
+// 저장된 토큰이 아직 유효한지 서버에 확인 (서버가 꺼져 있으면 저장된 정보를 그대로 씀)
+async function refreshMe() {
+  if (!getAuth()) return null;
+  try {
+    const user = await request("/auth/me", { headers: authHeader() });
+    saveAuth({ ...getAuth(), user });
+    return user;
+  } catch (e) {
+    if (e.status === 401) { clearAuth(); return null; }
+    return getCurrentUser();
+  }
+}
+
+// 로그인 화면 주소 (로그인 후 지금 화면으로 돌아오게)
+function loginUrl() {
+  const here = location.pathname.split("/").pop() + location.hash;
+  return "login.html?next=" + encodeURIComponent(here || "index.html");
 }

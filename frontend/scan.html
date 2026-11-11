@@ -167,15 +167,22 @@
         ${suspect ? `
           <label for="reportText">신고 문구 (고쳐서 보낼 수 있어요)</label>
           <textarea id="reportText" rows="4">${r.report_text}</textarea>
+          <p class="muted" id="reporterLine"></p>
           <div class="btn-row">
             <button class="navy" data-target="guardian">골목 지킴이에게 정리 요청</button>
             <button class="ghost" data-target="city">지자체(청소행정과)에 신고</button>
           </div>
           <p class="muted" id="reportMsg"></p>` : ""}`;
 
+      drawReporterLine();
       box.querySelectorAll("[data-target]").forEach(b => b.onclick = async () => {
         const text = document.getElementById("reportText").value.trim();
         const msg = document.getElementById("reportMsg");
+        if (!getCurrentUser()) {
+          msg.style.color = "var(--full)";
+          msg.innerHTML = `신고는 로그인한 주민만 할 수 있어요. <a href="${loginUrl()}" style="color:var(--blue-deep);font-weight:700">로그인하기</a>`;
+          return;
+        }
         if (!text) { msg.textContent = "신고 문구를 입력해 주세요"; msg.style.color = "var(--full)"; return; }
         try {
           await sendDumpingReport({
@@ -190,10 +197,26 @@
           drawDumping();
         } catch (e) {
           msg.style.color = "var(--full)";
-          msg.textContent = "보내지 못했어요: " + e.message;
+          if (e.status === 401) {
+            clearAuth(); drawAuthArea(); drawReporterLine();
+            msg.innerHTML = `로그인이 끝났어요. <a href="${loginUrl()}" style="color:var(--blue-deep);font-weight:700">다시 로그인하기</a>`;
+          } else {
+            msg.textContent = "보내지 못했어요: " + e.message;
+          }
         }
       });
     }
+
+    // 신고자 표시: 로그인했으면 이름, 안 했으면 로그인 안내
+    function drawReporterLine() {
+      const el = document.getElementById("reporterLine");
+      if (!el) return;
+      const u = getCurrentUser();
+      el.innerHTML = u
+        ? `신고자: <b>${escapeHTML(u.nickname)}</b> (${escapeHTML(u.building)})`
+        : `신고하려면 <a href="${loginUrl()}" style="color:var(--blue-deep);font-weight:700">로그인</a>이 필요해요`;
+    }
+    document.addEventListener("authchange", drawReporterLine);
 
     async function drawDumping() {
       const reports = await getDumpingReports().catch(() => []);
@@ -207,7 +230,7 @@
               <span class="badge no">사진 판단</span>
             </div>
             <h3>${rp.station_id ? stationName(rp.station_id) : "골목 (모음터 밖)"}</h3>
-            <p>${formatTime(rp.created_at)} · ${rp.report_text}</p>
+            <p>${formatTime(rp.created_at)}${rp.reporter ? " · 신고자 " + escapeHTML(rp.reporter) : ""} · ${escapeHTML(rp.report_text)}</p>
             ${done ? "" : `<div class="btn-row"><button class="small ghost" data-done="${rp.id}">정리 완료로 바꾸기</button></div>`}
           </div>`;
       }).join("");

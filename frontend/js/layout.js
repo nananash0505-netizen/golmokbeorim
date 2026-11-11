@@ -56,6 +56,32 @@ function scheduleEveningAlert(message) {
   if (seven - now > 0) setTimeout(() => sendEveningAlert(message), seven - now);
 }
 
+// ---------- 로그인 표시 (오른쪽 위) ----------
+function authAreaHTML() {
+  const u = getCurrentUser();
+  if (!u) return `<a class="outline-btn" href="${loginUrl()}">로그인</a>`;
+  return `<span class="auth-user"><b>${escapeHTML(u.nickname)}</b>님 · ${escapeHTML(u.building)}</span>
+          <a class="outline-btn" href="#" data-logout>로그아웃</a>`;
+}
+
+function escapeHTML(t) {
+  return String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function drawAuthArea() {
+  document.querySelectorAll("[data-auth-area]").forEach(el => {
+    el.innerHTML = authAreaHTML();
+    const out = el.querySelector("[data-logout]");
+    if (out) out.onclick = async e => {
+      e.preventDefault();
+      await logout();
+      showToast("로그아웃", "다음에 또 만나요.");
+      drawAuthArea();
+      document.dispatchEvent(new CustomEvent("authchange"));
+    };
+  });
+}
+
 // ---------- 하위 탭 ----------
 function visibleSubtabs() {
   const f = getFeatures();
@@ -115,6 +141,7 @@ async function renderShell() {
       <header class="topbar">
         <a class="logo" href="index.html"><img src="img/logo.png" alt=""><span>골목버림</span></a>
         <nav class="mainmenu" aria-label="주요 메뉴">${menu}</nav>
+        <div class="right auth-area" data-auth-area></div>
       </header>
       ${subs ? `<nav class="subtabs" aria-label="하위 메뉴">${subs}</nav>` : ""}
       ${info}`;
@@ -132,6 +159,9 @@ async function renderShell() {
     // 주소 끝 #이름 때문에 페이지 아래로 내려가지 않게, 처음 들어오면 항상 맨 위에서 시작
     window.scrollTo(0, 0);
   }
+
+  drawAuthArea();
+  refreshMe().then(() => { drawAuthArea(); document.dispatchEvent(new CustomEvent("authchange")); });
 
   if (document.body.dataset.closing === "1") {
     document.body.insertAdjacentHTML("beforeend", closingHTML());

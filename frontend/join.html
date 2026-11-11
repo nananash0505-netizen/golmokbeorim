@@ -292,6 +292,11 @@
         btn.disabled = false;
       };
       btn.onclick = () => {
+        if (!getCurrentUser()) {
+          const m = document.getElementById("proofMsg");
+          m.innerHTML = `지킴이 인증은 로그인한 주민만 할 수 있어요. <a href="${loginUrl()}" style="color:var(--blue-deep);font-weight:700">로그인하기</a>`;
+          return;
+        }
         const total = addPoints(GUARDIAN_REWARD);
         btn.disabled = true;
         btn.textContent = "인증 완료";
