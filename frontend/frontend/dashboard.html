@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>골목버림 - 적재량</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-tab="fill">
+  <main class="page">
+    <section class="block" data-sub="fill">
+      <h2 class="h-icon"><img src="img/bin.svg" alt="">적재량 추이와 AI 예측</h2>
+      <p class="sub">통을 고르면 최근 24시간 변화와 가득 찰 시각을 보여드려요</p>
+      <div class="chips" id="binChips" role="group" aria-label="통 선택"></div>
+      <div class="two-col" style="margin-top:18px">
+        <div>
+          <canvas id="chart" height="230"></canvas>
+          <div class="panel navy"><h3 id="predictText"></h3><p>최근 쌓이는 속도를 보고 AI가 계산했어요</p></div>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px;font-size:19px;font-weight:800">먼저 비울 곳</h3>
+          <div id="ranking"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" data-sub="fault">
+      <h2>장비 상태</h2>
+      <p class="sub">센서 값을 살펴 고장이 의심되면 바로 수리를 요청해요. 관리자가 없어도 고장이 방치되지 않아요</p>
+      <div class="two-col">
+        <div id="faultAlerts"></div>
+        <div id="faultNormal"></div>
+      </div>
+      <p class="muted">판단 기준: 한 시간 만에 무게가 15kg 넘게 튀거나, 4시간 동안 문이 10번 이상 열렸는데 무게가 그대로일 때</p>
+    </section>
+
+    <section class="block" data-sub="dumping">
+      <h2>무단투기 감지</h2>
+      <p class="sub">모음터 카메라가 방치된 쓰레기를 찾아요. 사람 얼굴은 가려서 처리해요</p>
+      <div id="dumping"></div>
+    </section>
+  </main>
+
+  <script>
+    window.SUBTABS = [
+      { key: "fill", label: "모음터 적재량" },
+      { key: "fault", label: "장비 상태", feature: "fault" },
+      { key: "dumping", label: "무단투기 감지", feature: "dumping" }
+    ];
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/features.js"></script>
+  <script src="js/layout.js"></script>
+  <script>
+    let chart;
+    let allBins = [];
+    let stations = [];
+    const stationName = id => (stations.find(s => s.id === id) || {}).name || "";
+
+    async function drawChart(binId) {
+      document.querySelectorAll("#binChips .chip").forEach(c => {
+        const on = Number(c.dataset.id) === binId;
+        c.classList.toggle("on", on);
+        c.setAttribute("aria-pressed", on);
+      });
+      const readings = await getReadings(binId);
+      const prediction = await getPrediction(binId);
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById("chart"), {
+        type: "line",
+        data: {
+          labels: readings.map(r => formatTime(r.time).split(" ")[1]),
+          datasets: [{ data: readings.map(r => r.fill), borderColor: "#3d8ef0", backgroundColor: "rgba(61,142,240,0.12)", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2.5 }]
+        },
+        options: {
+          scales: { y: { min: 0, max: 100, ticks: { callback: v => v + "%" } }, x: { ticks: { maxTicksLimit: 6 } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+      document.getElementById("predictText").textContent = `${formatTime(prediction.full_at)}에 가득 찰 것 같아요`;
+    }
+
+    function drawFaults() {
+      const alerts = [], normal = [];
+      allBins.forEach(b => {
+        const r = detectFault(b.id);
+        if (r.status === "suspect") {
+          alerts.push(`
+            <div class="panel alert" id="fault-${b.id}">
+              <h3>${b.station} · ${b.type}통 장비 이상 의심</h3>
+              <p>${r.reason}</p>
+              <div class="btn-row"><button class="small navy" data-repair="${b.id}">수거업체에 수리 요청</button></div>
+            </div>`);
+        } else {
+          normal.push(`<div class="row"><span>${b.station} · ${b.type}</span><span class="badge ok">정상</span></div>`);
+        }
+      });
+      document.getElementById("faultAlerts").innerHTML = alerts.join("") || '<div class="panel good"><h3>모든 장비가 정상이에요</h3></div>';
+      document.getElementById("faultNormal").innerHTML = normal.join("");
+      document.querySelectorAll("[data-repair]").forEach(btn => btn.onclick = () => {
+        document.getElementById("fault-" + btn.dataset.repair).className = "panel caution";
+        btn.parentElement.innerHTML = '<span class="badge warn">수리 요청됨 · 수거업체 확인 대기</span>';
+        showToast("수리 요청 완료", "수거업체에 장비 점검을 요청했어요.");
+      });
+    }
+
+    function drawDumping() {
+      document.getElementById("dumping").innerHTML = DUMPING_EVENTS.map(ev => {
+        const done = ev.status === "done";
+        return `
+          <div class="panel ${done ? "" : "caution"}">
+            <h3>${stationName(ev.stationId)}</h3>
+            <p>${formatTime(ev.time)} · ${ev.what}</p>
+            <div class="btn-row">
+              ${done ? '<span class="badge ok">정리 완료</span>' : `
+                <button class="small navy" data-act="guard">지킴이에게 정리 요청</button>
+                <button class="small ghost" data-act="report">지자체에 신고</button>`}
+            </div>
+          </div>`;
+      }).join("");
+      document.querySelectorAll("[data-act]").forEach(btn => btn.onclick = () => {
+        const msg = btn.dataset.act === "guard" ? "이번 주 지킴이에게 정리 요청을 보냈어요" : "청소행정과에 신고 내용을 보냈어요";
+        btn.parentElement.innerHTML = `<span class="badge info">${msg}</span>`;
+        showToast("무단투기 처리", msg);
+      });
+    }
+
+   
+async function load() {
+  try {
+    const f = getFeatures();
+
+    stations = await getStations();
+
+    allBins = stations.flatMap(s =>
+      (s.bins || []).map(b => ({
+        ...b,
+        station: s.name.split(" (")[0]
+      }))
+    );
+
+    if (allBins.length === 0) {
+      document.getElementById("binChips").innerHTML =
+        "<p>표시할 쓰레기통 데이터가 없습니다.</p>";
+      return;
+    }
+
+    document.getElementById("binChips").innerHTML =
+      allBins.map(b =>
+        `<button class="chip" data-id="${b.id}" aria-pressed="false">
+          ${b.station} ${b.type}
+        </button>`
+      ).join("");
+
+    document.querySelectorAll("#binChips .chip").forEach(c => {
+      c.onclick = () => drawChart(Number(c.dataset.id));
+    });
+
+    await drawChart(allBins[0].id);
+
+    document.getElementById("ranking").innerHTML =
+      [...allBins]
+        .sort((a, b) => b.fill - a.fill)
+        .map(b => `
+          <div class="row" style="display:block">
+            <div style="display:flex;justify-content:space-between">
+              <span>${b.station} · ${b.type}</span>
+              <span>${b.fill}% ${fillBadge(b.fill)}</span>
+            </div>
+            <div class="bar">
+              <div style="width:${b.fill}%;background:${fillColor(b.fill)}"></div>
+            </div>
+          </div>
+        `).join("");
+
+    if (f.fault) drawFaults();
+    if (f.dumping) drawDumping();
+
+  } catch (error) {
+    console.error("적재량 데이터 불러오기 실패:", error);
+  }
+}
+
+    load();
+  </script>
+</body>
+</html>

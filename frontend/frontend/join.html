@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>골목버림 - 골목단지</title>
+  <link rel="icon" href="img/logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body data-tab="alley" data-closing="1">
+
+  <!-- 골목 지도 (직방 지도 형태) -->
+  <div class="mapwrap" data-sub="map">
+    <div id="alleyMap">
+      <div class="map-search">
+        <form id="searchForm" role="search">
+          <input id="searchInput" placeholder="지역, 동네, 역 이름 검색 (예: 화양동, 건대)" aria-label="지역 검색">
+          <button type="submit" aria-label="검색"><img src="img/search-white.svg" alt=""></button>
+        </form>
+        <div class="chips" id="regionChips"></div>
+        <p class="msg" id="searchMsg" hidden></p>
+      </div>
+    </div>
+    <aside class="side" id="side" aria-live="polite"></aside>
+  </div>
+
+  <main class="page">
+    <section class="block" data-sub="town" id="town">
+      <div class="two-col">
+        <div>
+          <h2 class="h-icon"><img src="img/villa.svg" alt=""><span id="clusterName">우리 골목 단지</span></h2>
+          <p class="sub" id="gaugeHint"></p>
+          <div class="big-num" id="gaugeText"></div>
+          <div class="bar" style="height:14px"><div id="gauge" style="width:0%;background:var(--blue)"></div></div>
+          <div id="buildings" style="margin-top:12px"></div>
+        </div>
+        <div>
+          <h2>우리 빌라 참여하기</h2>
+          <p class="sub">같은 골목 빌라가 모여 60세대가 되면 지원 사업을 신청할 수 있어요</p>
+          <label for="building">빌라 이름</label>
+          <input id="building" placeholder="예: 행복빌라">
+          <label for="households">세대수</label>
+          <input id="households" type="number" min="1" placeholder="예: 8">
+          <p class="muted" id="joinError" style="color:var(--full)" hidden>빌라 이름과 세대수를 모두 입력해 주세요</p>
+          <button id="joinBtn" class="navy">참여하기</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" data-sub="guardian" id="guardian">
+      <div class="two-col">
+        <div>
+          <h2 class="h-icon"><img src="img/person.png" alt="">골목 지킴이</h2>
+          <p class="sub">일주일씩 돌아가며 모음터 주변을 정리해요. 인증하면 <span id="rewardAmount"></span>P를 드려요</p>
+          <div class="panel navy"><h3 id="thisWeek"></h3><p id="thisWeekHouse"></p></div>
+          <div id="roster"></div>
+        </div>
+        <div>
+          <h2>정리 인증하기</h2>
+          <p class="sub">당번 주에 정리한 모음터 사진을 올려 주세요</p>
+          <label for="proof">인증 사진</label>
+          <input type="file" id="proof" accept="image/*" capture="environment">
+          <img id="proofPreview" class="preview" alt="인증 사진 미리보기" hidden>
+          <div class="btn-row"><button id="proofBtn" disabled>인증하고 포인트 받기</button></div>
+          <p class="muted" id="proofMsg"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" data-sub="retention" id="retention">
+      <div class="two-col">
+        <div>
+          <h2 class="h-icon"><img src="img/flower.png" alt="">우리 골목 참여 현황</h2>
+          <p class="sub">골목 카메라가 감지한 집 앞 배출 건수예요</p>
+          <canvas id="doorstepChart" height="190"></canvas>
+          <div id="trendBox"></div>
+        </div>
+        <div>
+          <h2 class="h-icon"><img src="img/laurel.png" alt="">우리 집 연속 참여</h2>
+          <p class="sub">3개월 연속 참여한 세대에 보너스 포인트를 드려요</p>
+          <div class="chips" id="streak" style="margin:8px 0"></div>
+          <div id="streakBox"></div>
+          <div class="panel"><h3>내 포인트</h3><div class="big-num" id="myPoints"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" data-sub="settings">
+      <h2>기능 설정</h2>
+      <p class="sub">골목 단지에서 쓸 기능을 고를 수 있어요</p>
+      <div id="settings" style="max-width:720px"></div>
+    </section>
+  </main>
+
+  <script>
+    window.SUBTABS = [
+      { key: "map", label: "골목 지도" },
+      { key: "town", label: "우리 단지" },
+      { key: "guardian", label: "골목 지킴이", feature: "guardian" },
+      { key: "retention", label: "참여 현황", feature: "retention" },
+      { key: "settings", label: "기능 설정" }
+    ];
+  </script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/features.js"></script>
+  <script src="js/layout.js"></script>
+  <script>
+    // ================= 골목 지도 =================
+    let map, layer, currentRegion, selectedId;
+    const markerEls = {};
+
+    function initMap() {
+      if (map) { map.invalidateSize(); return; }
+      map = L.map("alleyMap", { zoomControl: false }).setView(REGIONS[0].center, REGIONS[0].zoom);
+      L.control.zoom({ position: "bottomleft" }).addTo(map);
+      const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { attribution: "Tiles &copy; Esri", maxZoom: 19 });
+      const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 });
+      const street = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { attribution: "Tiles &copy; Esri", maxZoom: 19, maxNativeZoom: 16 });
+      const sat = L.layerGroup([satellite, labels]).addTo(map);
+      L.control.layers({ "위성 사진": sat, "일반 지도": street }, null, { position: "topright" }).addTo(map);
+      layer = L.layerGroup().addTo(map);
+
+      document.getElementById("regionChips").innerHTML = REGIONS.map(r =>
+        `<button type="button" class="chip" data-region="${r.key}">${r.name}</button>`).join("");
+      document.querySelectorAll("[data-region]").forEach(c => c.onclick = () => showRegion(REGIONS.find(r => r.key === c.dataset.region)));
+
+      document.getElementById("searchForm").onsubmit = e => {
+        e.preventDefault();
+        const text = document.getElementById("searchInput").value.trim();
+        const msg = document.getElementById("searchMsg");
+        if (!text) { msg.textContent = "찾을 동네 이름을 입력해 주세요"; msg.hidden = false; return; }
+        const r = findRegion(text);
+        if (!r) {
+          msg.textContent = `'${text}'에는 아직 골목버림이 없어요. 위쪽 '우리 골목 신청하기'로 알려 주세요`;
+          msg.hidden = false;
+          return;
+        }
+        msg.hidden = true;
+        showRegion(r);
+      };
+      document.getElementById("searchInput").addEventListener("input", () => document.getElementById("searchMsg").hidden = true);
+
+      showRegion(REGIONS[0]);
+    }
+
+    async function regionSites(region) {
+      if (!region.operating) return region.sites.map(s => ({ ...s, status: "proposed" }));
+      const stations = await getStations();
+      return stations.map(s => ({
+        id: "s" + s.id, name: s.name, lat: s.lat, lng: s.lng, households: STATION_HOUSEHOLDS[s.id] || 15,
+        bins: s.bins, status: "operating"
+      }));
+    }
+
+    async function showRegion(region) {
+      currentRegion = region;
+      selectedId = null;
+      document.querySelectorAll("[data-region]").forEach(c => c.classList.toggle("on", c.dataset.region === region.key));
+      map.flyTo(region.center, region.zoom, { duration: 0.8 });
+      layer.clearLayers();
+      const sites = await regionSites(region);
+      window._sites = sites;
+
+      sites.forEach(s => {
+        const size = Math.round(Math.min(78, 44 + s.households * 0.45));
+        const short = s.name.split(" (")[0].replace("모음터 ", "");
+        const icon = L.divIcon({
+          className: "",
+          html: `<div style="display:flex;flex-direction:column;align-items:center">
+                   <div class="cluster ${s.status === "proposed" ? "proposed" : ""}" style="width:${size}px;height:${size}px">${s.households}</div>
+                   <div class="cluster-label">${short}</div>
+                 </div>`,
+          iconSize: [Math.max(size, 110), size + 26],
+          iconAnchor: [Math.max(size, 110) / 2, size / 2]
+        });
+        const m = L.marker([s.lat, s.lng], { icon, keyboard: true, title: s.name }).addTo(layer);
+        m.on("click", () => select(s.id, false));
+        markerEls[s.id] = m;
+      });
+
+      renderSide(region, sites);
+    }
+
+    function renderSide(region, sites) {
+      const total = sites.reduce((a, s) => a + s.households, 0);
+      const list = sites.map(s => {
+        let detail = "";
+        if (s.status === "operating") {
+          detail = s.bins.map(b => `
+            <div style="margin-top:8px;font-size:13px">${b.type} ${b.fill}%
+              <div class="bar"><div style="width:${b.fill}%;background:${fillColor(b.fill)}"></div></div></div>`).join("");
+        } else {
+          detail = `<div class="why">${s.why}</div>`;
+        }
+        return `
+          <button class="site" data-site="${s.id}">
+            <div class="top"><span class="name">${s.name}</span>
+              ${s.status === "operating" ? '<span class="badge info">운영 중</span>' : '<span class="badge warn">설치 제안</span>'}</div>
+            <div class="num">${s.status === "operating" ? "이용" : "예상 이용"} ${s.households}세대</div>
+            ${detail}
+          </button>`;
+      }).join("");
+
+      document.getElementById("side").innerHTML = `
+        <h3>${region.name}</h3>
+        <p class="sub">${region.area}</p>
+        ${region.note ? `<div class="panel" style="margin-top:0"><p>${region.note}</p></div>` : ""}
+        <div class="legend">
+          <span><i style="background:rgba(61,142,240,.86)"></i>운영 중</span>
+          <span><i style="background:rgba(127,182,255,.78)"></i>설치 제안</span>
+          <span><i style="background:var(--navy)"></i>선택한 곳</span>
+        </div>
+        <p class="muted" style="margin:0 0 12px">동그라미 숫자는 그 모음터를 쓰는 세대 수예요 · 이 지역 모음터 ${sites.length}곳, ${total}세대</p>
+        ${list}`;
+      document.querySelectorAll("[data-site]").forEach(b => b.onclick = () => select(b.dataset.site, true));
+    }
+
+    function select(id, fromList) {
+      selectedId = id;
+      Object.entries(markerEls).forEach(([k, m]) => {
+        const el = m.getElement() && m.getElement().querySelector(".cluster");
+        if (el) el.classList.toggle("selected", k === id);
+      });
+      document.querySelectorAll("[data-site]").forEach(b => b.classList.toggle("selected", b.dataset.site === id));
+      const s = window._sites.find(x => x.id === id);
+      if (fromList) map.panTo([s.lat, s.lng]);
+      else {
+        const card = document.querySelector(`[data-site="${id}"]`);
+        if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+
+    document.addEventListener("subtabchange", e => { if (e.detail === "map") setTimeout(initMap, 0); });
+
+    // ================= 우리 단지 =================
+    function renderCluster(c) {
+      const pct = Math.min(100, Math.round(c.current / c.target * 100));
+      document.getElementById("clusterName").textContent = c.name;
+      document.getElementById("gaugeText").textContent = `${c.current} / ${c.target}세대`;
+      document.getElementById("gauge").style.width = pct + "%";
+      document.getElementById("gaugeHint").textContent = c.current >= c.target
+        ? "60세대를 모았어요. 지자체 RFID 지원 사업을 신청할 수 있어요"
+        : `${c.target - c.current}세대만 더 모이면 지원 사업을 신청할 수 있어요`;
+      document.getElementById("buildings").innerHTML = c.buildings.map(b =>
+        `<div class="row"><span>${b.name}</span><span class="muted">${b.households}세대</span></div>`).join("");
+    }
+
+    document.getElementById("joinBtn").onclick = async () => {
+      const building = document.getElementById("building").value.trim();
+      const households = document.getElementById("households").value;
+      const err = document.getElementById("joinError");
+      if (!building || !households) { err.hidden = false; return; }
+      err.hidden = true;
+      renderCluster(await joinCluster(1, { building, households }));
+      document.getElementById("building").value = "";
+      document.getElementById("households").value = "";
+      showToast("골목 단지 참여", `${building}이(가) 골목 단지에 참여했어요.`);
+    };
+    ["building", "households"].forEach(id =>
+      document.getElementById(id).addEventListener("input", () => document.getElementById("joinError").hidden = true));
+
+    // ================= 골목 지킴이 =================
+    function renderGuardian() {
+      const g = getGuardianRoster();
+      const now = g.roster[g.currentIndex];
+      document.getElementById("rewardAmount").textContent = GUARDIAN_REWARD;
+      document.getElementById("thisWeek").textContent = `이번 주 지킴이 · ${now.week}`;
+      document.getElementById("thisWeekHouse").textContent = now.house;
+      document.getElementById("roster").innerHTML = g.roster.slice(1, 6).map(r => `
+        <div class="row"><span>${r.week}</span>
+          <span>${r.house} ${r.isMe ? '<span class="badge navy">내 차례</span>' : ""}</span></div>`).join("");
+
+      const proof = document.getElementById("proof");
+      const btn = document.getElementById("proofBtn");
+      proof.onchange = () => {
+        if (!proof.files[0]) return;
+        const img = document.getElementById("proofPreview");
+        img.src = URL.createObjectURL(proof.files[0]);
+        img.hidden = false;
+        btn.disabled = false;
+      };
+      btn.onclick = () => {
+        const total = addPoints(GUARDIAN_REWARD);
+        btn.disabled = true;
+        btn.textContent = "인증 완료";
+        document.getElementById("proofMsg").textContent = `${GUARDIAN_REWARD}P를 받았어요. 지금 포인트는 ${total.toLocaleString()}P예요`;
+        document.getElementById("myPoints").textContent = total.toLocaleString() + "P";
+        showToast("지킴이 인증 완료", `모음터 정리 고마워요! ${GUARDIAN_REWARD}P가 적립됐어요.`);
+      };
+    }
+
+    // ================= 참여 현황 =================
+    function renderRetention() {
+      new Chart(document.getElementById("doorstepChart"), {
+        type: "bar",
+        data: {
+          labels: DOORSTEP_WEEKLY.map(w => w.week),
+          datasets: [{ data: DOORSTEP_WEEKLY.map(w => w.count), backgroundColor: DOORSTEP_WEEKLY.map((w, i) => i >= DOORSTEP_WEEKLY.length - 2 ? "#1b2140" : "#9cc6f7"), borderRadius: 6 }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+
+      const t = checkDoorstepTrend();
+      const box = document.getElementById("trendBox");
+      if (t.rising) {
+        box.innerHTML = `
+          <div class="panel caution">
+            <h3>집 앞 배출이 다시 늘고 있어요</h3>
+            <p>이번 주 ${t.latest}건으로 2주 연속 늘었어요. 골목 주민에게 리마인드를 보낼 수 있어요.</p>
+            <div class="btn-row"><button class="small navy" id="remindBtn">골목에 리마인드 보내기</button></div>
+          </div>`;
+        document.getElementById("remindBtn").onclick = e => {
+          e.target.parentElement.innerHTML = '<span class="badge info">골목 주민에게 리마인드를 보냈어요</span>';
+          showToast("우리 골목 리마인드", "요즘 집 앞 배출이 늘었어요. 모음터를 이용해 주세요!");
+        };
+      } else {
+        box.innerHTML = '<div class="panel good"><h3>모음터를 잘 이용하고 있어요</h3><p>집 앞 배출이 늘지 않았어요.</p></div>';
+      }
+
+      document.getElementById("streak").innerHTML = MY_PARTICIPATION.map(m =>
+        `<span class="chip ${m.ok ? "on" : ""}" style="cursor:default">${m.month} ${m.ok ? "참여" : "진행 중"}</span>`).join("");
+      const done = MY_PARTICIPATION.filter(m => m.ok).length;
+      document.getElementById("streakBox").innerHTML = done >= 3
+        ? `<div class="panel good"><h3>3개월 연속 참여 달성</h3><p>보너스 ${STREAK_REWARD.toLocaleString()}P를 받았어요.</p></div>`
+        : `<div class="panel navy"><h3>이번 달까지 참여하면 3개월 연속이에요</h3><p>달성하면 보너스 ${STREAK_REWARD.toLocaleString()}P를 드려요.</p></div>`;
+      document.getElementById("myPoints").textContent = getPoints().toLocaleString() + "P";
+    }
+
+    // ================= 기능 설정 =================
+    function renderSettings() {
+      const f = getFeatures();
+      document.getElementById("settings").innerHTML = FEATURE_LIST.map(item => `
+        <div class="row">
+          <div><div style="font-weight:700">${item.name}</div><div class="muted">${item.desc}</div></div>
+          <label class="switch" aria-label="${item.name}">
+            <input type="checkbox" data-key="${item.key}" ${f[item.key] ? "checked" : ""}><span></span>
+          </label>
+        </div>`).join("");
+      document.querySelectorAll("#settings input").forEach(sw => sw.onchange = () => {
+        setFeature(sw.dataset.key, sw.checked);
+        location.reload();
+      });
+    }
+
+    async function load() {
+      const f = getFeatures();
+      renderCluster(await getCluster(1));
+      if (f.guardian) renderGuardian();
+      if (f.retention) renderRetention();
+      renderSettings();
+      if (!document.querySelector('[data-sub="map"]').hidden) initMap();
+    }
+    load();
+  </script>
+</body>
+</html>
