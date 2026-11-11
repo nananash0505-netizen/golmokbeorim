@@ -115,7 +115,6 @@ async function renderShell() {
       <header class="topbar">
         <a class="logo" href="index.html"><img src="img/logo.png" alt=""><span>골목버림</span></a>
         <nav class="mainmenu" aria-label="주요 메뉴">${menu}</nav>
-        <div class="right"><a class="outline-btn" href="#">로그인 및 회원가입</a></div>
       </header>
       ${subs ? `<nav class="subtabs" aria-label="하위 메뉴">${subs}</nav>` : ""}
       ${info}`;
